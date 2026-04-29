@@ -8,16 +8,40 @@
 // Model fallback chain — MOST STABLE FIRST
 const MODELS = [
   'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
   'gemini-1.5-pro',
-  'gemini-pro'
+  'gemini-1.5-pro-latest',
+  'gemini-pro',
+  'gemini-1.0-pro'
 ];
 
 const VISION_MODELS = [
   'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
   'gemini-1.5-pro'
 ];
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1/models';
+
+// ── Test Connection ──
+export async function testGeminiKey() {
+  const key = getKey();
+  if (!key) throw new Error('No key to test');
+  
+  // Try to list models to verify the key works
+  const url = `https://generativelanguage.googleapis.com/v1/models?key=${key}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  
+  if (!res.ok) throw new Error(data?.error?.message || 'Invalid API Key');
+  
+  const available = data.models?.map(m => m.name.split('/').pop()) || [];
+  return {
+    success: true,
+    models: available,
+    recommended: MODELS.find(m => available.includes(m)) || available[0]
+  };
+}
 
 // ── In-flight request deduplication cache ──
 // Prevents burning quota when same prompt fires multiple times simultaneously
