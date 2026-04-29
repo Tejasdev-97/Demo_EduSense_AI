@@ -17,7 +17,7 @@ const VISION_MODELS = [
   'gemini-1.5-pro'
 ];
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1/models';
 
 // ── In-flight request deduplication cache ──
 // Prevents burning quota when same prompt fires multiple times simultaneously
