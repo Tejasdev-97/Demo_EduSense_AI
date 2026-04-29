@@ -7,19 +7,17 @@
 
 // Model fallback chain — MOST STABLE FIRST
 const MODELS = [
-  'gemini-1.5-flash-latest',
   'gemini-1.5-flash',
-  'gemini-2.0-flash',
+  'gemini-1.5-pro',
   'gemini-pro'
 ];
 
 const VISION_MODELS = [
-  'gemini-1.5-flash-latest',
   'gemini-1.5-flash',
-  'gemini-2.0-flash'
+  'gemini-1.5-pro'
 ];
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1/models';
 
 // ── In-flight request deduplication cache ──
 // Prevents burning quota when same prompt fires multiple times simultaneously
