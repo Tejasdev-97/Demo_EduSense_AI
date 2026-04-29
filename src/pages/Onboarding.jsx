@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, GraduationCap, BookOpen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { upsertProfile } from '../lib/supabase';
 import { PageTransition } from '../components/UI';
@@ -9,14 +9,8 @@ import { LANGUAGES } from '../lib/bhashini';
 import toast from 'react-hot-toast';
 import { useT } from '../hooks/useT';
 
-const ROLES = [
-  { value: 'student', emoji: '🎒', label: 'Student', desc: 'Class 3 to college' },
-  { value: 'teacher', emoji: '📖', label: 'Teacher', desc: 'School or college faculty' },
-  { value: 'parent', emoji: '👨‍👩‍👧', label: 'Parent', desc: 'Monitor child\'s learning' },
-  { value: 'self_learner', emoji: '💡', label: 'Self Learner', desc: 'Learning independently' },
-];
-
 const GRADES = ['3','4','5','6','7','8','9','10','11','12','UG Year 1','UG Year 2','UG Year 3','PG'];
+const SUBJECTS = ['Mathematics','Science','Social Science','English','Hindi','Physics','Chemistry','Biology','History','Geography','Computer Science','Physical Education'];
 
 const STATES = [
   'Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana',
@@ -32,8 +26,8 @@ const BACKGROUNDS = [
 ];
 
 const OCCUPATIONS = [
-  'Farming', 'Daily wage labor', 'Small business', 'Government job',
-  'Teaching', 'Healthcare', 'Fishing', 'Handicraft', 'Dairy farming', 'Other',
+  'Farming','Daily wage labor','Small business','Government job',
+  'Teaching','Healthcare','Fishing','Handicraft','Dairy farming','Other',
 ];
 
 const ACCESSIBILITY_NEEDS = [
@@ -43,108 +37,106 @@ const ACCESSIBILITY_NEEDS = [
   { key: 'adhdMode', label: 'ADHD focus mode', emoji: '⚡' },
 ];
 
-const STEPS_CONFIG = [
-  { id: 'role', title: 'I am a…', subtitle: 'This helps us personalize your experience' },
-  { id: 'grade', title: 'My Grade / Level', subtitle: 'We\'ll adapt content to your level' },
-  { id: 'language', title: 'Preferred Language', subtitle: 'EduSense will respond in your language' },
-  { id: 'location', title: 'My State', subtitle: 'Stories will use local cultural context' },
-  { id: 'context', title: 'Family Background', subtitle: 'Helps create relatable examples' },
-  { id: 'accessibility', title: 'Accessibility Needs', subtitle: 'We make learning easier for everyone' },
+// Steps for STUDENTS
+const STUDENT_STEPS = [
+  { id: 'grade',         title: 'Your Grade',          subtitle: 'We\'ll adapt content to your level' },
+  { id: 'language',     title: 'Preferred Language',   subtitle: 'EduSense will respond in your language' },
+  { id: 'location',     title: 'Your State',            subtitle: 'Stories will use local cultural context' },
+  { id: 'context',      title: 'Family Background',    subtitle: 'Helps create relatable examples' },
+  { id: 'accessibility',title: 'Accessibility Needs',  subtitle: 'We make learning easier for everyone' },
+];
+
+// Steps for TEACHERS
+const TEACHER_STEPS = [
+  { id: 'subject',      title: 'Subject You Teach',    subtitle: 'We\'ll tailor insights to your subject' },
+  { id: 'language',     title: 'Preferred Language',   subtitle: 'EduSense will respond in your language' },
+  { id: 'location',     title: 'Your State',            subtitle: 'Local context for your classroom' },
+  { id: 'accessibility',title: 'Accessibility Needs',  subtitle: 'Make your dashboard accessible' },
 ];
 
 export default function Onboarding() {
-  const { user, setProfile, setAccessibility } = useAppStore();
+  const { user, profile, setProfile, setAccessibility } = useAppStore();
   const navigate = useNavigate();
   const { t } = useT();
+
+  // Detect role from profile saved during signup
+  const userRole = profile?.role || 'student';
+  const steps = userRole === 'teacher' ? TEACHER_STEPS : STUDENT_STEPS;
+
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState({
-    role: '', grade: '', language: 'hi', state: '', background: 'rural',
-    family_occupation: '', accessibility: {},
+    grade: profile?.grade ? String(profile.grade) : '',
+    subject: profile?.subject || '',
+    language: 'hi',
+    state: '',
+    background: 'rural',
+    family_occupation: '',
+    accessibility: {},
   });
 
-  const set = (key, value) => setData(prev => ({ ...prev, [key]: value }));
+  const setField = (key, value) => setData(prev => ({ ...prev, [key]: value }));
+
+  const canNext = () => {
+    const currentStep = steps[step].id;
+    if (currentStep === 'grade' && !data.grade) return false;
+    if (currentStep === 'subject' && !data.subject) return false;
+    return true;
+  };
 
   const handleFinish = async () => {
     setLoading(true);
     try {
-      const profile = {
+      const updatedProfile = {
+        ...profile,
         id: user?.id,
-        name: user?.email?.split('@')[0] || 'Student',
-        role: data.role,
-        grade: isNaN(parseInt(data.grade)) ? null : parseInt(data.grade),
+        name: profile?.name || user?.email?.split('@')[0] || (userRole === 'teacher' ? 'Teacher' : 'Student'),
+        role: userRole,
+        grade: userRole === 'student' ? (isNaN(parseInt(data.grade)) ? data.grade : parseInt(data.grade)) : null,
+        subject: userRole === 'teacher' ? data.subject : null,
         language: data.language,
         state: data.state,
         background: data.background,
         family_occupation: data.family_occupation,
         accessibility_settings: data.accessibility,
-        gyaan_coins: 0,
-        streak_count: 0,
-        visual_literacy_level: 1,
+        gyaan_coins: profile?.gyaan_coins ?? 0,
+        streak_count: profile?.streak_count ?? 0,
+        visual_literacy_level: profile?.visual_literacy_level ?? 2,
       };
-      await upsertProfile(profile);
-      setProfile(profile);
 
-      // Apply accessibility
+      await upsertProfile(updatedProfile);
+      setProfile(updatedProfile);
+
+      // Apply accessibility settings immediately
       Object.entries(data.accessibility).forEach(([key, value]) => {
         if (value) setAccessibility(key, true);
       });
 
-      toast.success('Profile set up! Let\'s start learning 🚀');
-      navigate('/dashboard');
+      toast.success(userRole === 'teacher'
+        ? '🏫 Teacher dashboard is ready!'
+        : '🚀 Let\'s start learning!'
+      );
+
+      // Route teachers to teacher dashboard, students to student dashboard
+      navigate(userRole === 'teacher' ? '/teacher' : '/dashboard');
     } catch (err) {
-      toast.error('Failed to save profile');
+      toast.error('Failed to save profile. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const canNext = () => {
-    if (step === 0 && !data.role) return false;
-    if (step === 1 && data.role === 'student' && !data.grade) return false;
-    return true;
-  };
-
   const renderStep = () => {
-    switch (STEPS_CONFIG[step].id) {
-      case 'role':
-        return (
-          <div className="grid grid-cols-2 gap-4">
-            {ROLES.map(r => (
-              <button
-                key={r.value}
-                id={`role-${r.value}`}
-                onClick={() => set('role', r.value)}
-                className={`p-5 rounded-2xl border-2 text-left transition-all duration-200 ${
-                  data.role === r.value
-                    ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-primary/40'
-                }`}
-              >
-                <div className="text-3xl mb-2">{r.emoji}</div>
-                <p className="font-semibold text-gray-900 dark:text-white">{t(r.label)}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{t(r.desc)}</p>
-              </button>
-            ))}
-          </div>
-        );
+    const currentId = steps[step].id;
 
+    switch (currentId) {
       case 'grade':
-        if (data.role !== 'student' && data.role !== 'self_learner') {
-          return (
-            <div className="text-center py-8">
-              <div className="text-5xl mb-4">✅</div>
-              <p className="text-gray-600 dark:text-gray-400">{t('Grade selection is for students only. Continue to next step.')}</p>
-            </div>
-          );
-        }
         return (
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
             {GRADES.map(g => (
               <button
-                key={g}
-                id={`grade-${g}`}
-                onClick={() => set('grade', g)}
+                key={g} id={`grade-${g}`} type="button"
+                onClick={() => setField('grade', g)}
                 className={`py-3 px-2 rounded-xl text-sm font-semibold transition-all ${
                   data.grade === g
                     ? 'bg-primary text-white shadow-glow-orange'
@@ -157,14 +149,32 @@ export default function Onboarding() {
           </div>
         );
 
+      case 'subject':
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            {SUBJECTS.map(s => (
+              <button
+                key={s} id={`subj-${s}`} type="button"
+                onClick={() => setField('subject', s)}
+                className={`py-3 px-4 rounded-xl text-sm font-semibold text-left transition-all border-2 ${
+                  data.subject === s
+                    ? 'border-secondary bg-secondary/5 text-secondary'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-secondary/40'
+                }`}
+              >
+                {t(s)}
+              </button>
+            ))}
+          </div>
+        );
+
       case 'language':
         return (
           <div className="grid grid-cols-2 gap-3">
             {LANGUAGES.map(lang => (
               <button
-                key={lang.code}
-                id={`lang-${lang.code}`}
-                onClick={() => set('language', lang.code)}
+                key={lang.code} id={`lang-${lang.code}`} type="button"
+                onClick={() => setField('language', lang.code)}
                 className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                   data.language === lang.code
                     ? 'border-primary bg-primary/5'
@@ -185,12 +195,7 @@ export default function Onboarding() {
       case 'location':
         return (
           <div>
-            <select
-              id="select-state"
-              value={data.state}
-              onChange={e => set('state', e.target.value)}
-              className="input-base mb-6"
-            >
+            <select id="select-state" value={data.state} onChange={e => setField('state', e.target.value)} className="input-base mb-6">
               <option value="">{t('Select your state / UT')}</option>
               {STATES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -198,9 +203,8 @@ export default function Onboarding() {
             <div className="grid grid-cols-3 gap-3">
               {BACKGROUNDS.map(b => (
                 <button
-                  key={b.value}
-                  id={`bg-${b.value}`}
-                  onClick={() => set('background', b.value)}
+                  key={b.value} id={`bg-${b.value}`} type="button"
+                  onClick={() => setField('background', b.value)}
                   className={`p-4 rounded-xl border-2 text-center transition-all ${
                     data.background === b.value
                       ? 'border-primary bg-primary/5'
@@ -208,7 +212,7 @@ export default function Onboarding() {
                   }`}
                 >
                   <div className="text-2xl mb-1">{b.emoji}</div>
-                  <p className="text-sm font-semibold">{t(b.label)}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{t(b.label)}</p>
                   <p className="text-xs text-gray-500">{t(b.desc)}</p>
                 </button>
               ))}
@@ -220,14 +224,13 @@ export default function Onboarding() {
         return (
           <div>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              {t('We use this to create culturally familiar examples in stories. For example, if your family farms, we\'ll use farming scenarios to explain math and science.')}
+              {t('We use this to create culturally familiar examples in stories.')}
             </p>
             <div className="grid grid-cols-2 gap-2">
               {OCCUPATIONS.map(occ => (
                 <button
-                  key={occ}
-                  id={`occ-${occ}`}
-                  onClick={() => set('family_occupation', occ)}
+                  key={occ} id={`occ-${occ}`} type="button"
+                  onClick={() => setField('family_occupation', occ)}
                   className={`py-3 px-4 rounded-xl text-sm font-medium transition-all border-2 ${
                     data.family_occupation === occ
                       ? 'border-primary bg-primary/5 text-primary'
@@ -248,9 +251,8 @@ export default function Onboarding() {
             <div className="space-y-3">
               {ACCESSIBILITY_NEEDS.map(a => (
                 <button
-                  key={a.key}
-                  id={`access-${a.key}`}
-                  onClick={() => set('accessibility', { ...data.accessibility, [a.key]: !data.accessibility[a.key] })}
+                  key={a.key} id={`access-${a.key}`} type="button"
+                  onClick={() => setField('accessibility', { ...data.accessibility, [a.key]: !data.accessibility[a.key] })}
                   className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${
                     data.accessibility[a.key]
                       ? 'border-secondary bg-secondary/5'
@@ -278,27 +280,40 @@ export default function Onboarding() {
     <PageTransition>
       <div className="min-h-screen bg-[#FFFBF5] dark:bg-[#0C0A09] flex items-center justify-center p-4">
         <div className="w-full max-w-lg">
-          {/* Progress */}
+
+          {/* ── Role Badge ── */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            {userRole === 'teacher' ? (
+              <div className="flex items-center gap-2 px-4 py-2 bg-secondary/10 text-secondary rounded-full text-sm font-semibold">
+                <BookOpen size={16} />
+                {t('Setting up Teacher Profile')}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary rounded-full text-sm font-semibold">
+                <GraduationCap size={16} />
+                {t('Setting up Student Profile')}
+              </div>
+            )}
+          </div>
+
+          {/* ── Progress Bar ── */}
           <div className="flex items-center gap-1 mb-8">
-            {STEPS_CONFIG.map((_, i) => (
-              <div
-                key={i}
-                className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-                  i <= step ? 'bg-primary' : 'bg-gray-200 dark:bg-gray-700'
-                }`}
-              />
+            {steps.map((_, i) => (
+              <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+                i <= step ? (userRole === 'teacher' ? 'bg-secondary' : 'bg-primary') : 'bg-gray-200 dark:bg-gray-700'
+              }`} />
             ))}
           </div>
 
-          {/* Step card */}
+          {/* ── Step Card ── */}
           <div className="bg-white dark:bg-gray-900 rounded-3xl shadow-card p-8">
-            <p className="text-sm text-primary font-semibold uppercase tracking-widest mb-2">
-              {t('Step')} {step + 1} {t('of')} {STEPS_CONFIG.length}
+            <p className={`text-sm font-semibold uppercase tracking-widest mb-2 ${userRole === 'teacher' ? 'text-secondary' : 'text-primary'}`}>
+              {t('Step')} {step + 1} {t('of')} {steps.length}
             </p>
             <h2 className="font-heading text-2xl font-bold text-gray-900 dark:text-white mb-1">
-              {t(STEPS_CONFIG[step].title)}
+              {t(steps[step].title)}
             </h2>
-            <p className="text-gray-500 text-sm mb-8">{t(STEPS_CONFIG[step].subtitle)}</p>
+            <p className="text-gray-500 text-sm mb-8">{t(steps[step].subtitle)}</p>
 
             <AnimatePresence mode="wait">
               <motion.div
@@ -312,7 +327,7 @@ export default function Onboarding() {
               </motion.div>
             </AnimatePresence>
 
-            {/* Navigation */}
+            {/* ── Navigation ── */}
             <div className="flex items-center justify-between mt-8">
               <button
                 onClick={() => setStep(s => s - 1)}
@@ -323,12 +338,12 @@ export default function Onboarding() {
                 <ArrowLeft size={18} /> {t('Back')}
               </button>
 
-              {step < STEPS_CONFIG.length - 1 ? (
+              {step < steps.length - 1 ? (
                 <button
                   onClick={() => setStep(s => s + 1)}
                   disabled={!canNext()}
                   id="btn-onboard-next"
-                  className="btn-primary disabled:opacity-50"
+                  className={`disabled:opacity-50 ${userRole === 'teacher' ? 'btn-secondary' : 'btn-primary'}`}
                 >
                   {t('Next')} <ArrowRight size={18} />
                 </button>
@@ -337,20 +352,17 @@ export default function Onboarding() {
                   onClick={handleFinish}
                   disabled={loading}
                   id="btn-onboard-finish"
-                  className="btn-primary disabled:opacity-50"
+                  className={`disabled:opacity-50 ${userRole === 'teacher' ? 'btn-secondary' : 'btn-primary'}`}
                 >
-                  {loading ? t('Saving…') : t('Start Learning 🚀')}
+                  {loading ? t('Saving…') : (userRole === 'teacher' ? '🏫 ' + t('Go to Teacher Dashboard') : '🚀 ' + t('Start Learning'))}
                 </button>
               )}
             </div>
 
-            {step < STEPS_CONFIG.length - 1 && (
+            {step < steps.length - 1 && (
               <div className="text-center mt-4">
-                <button
-                  onClick={() => setStep(s => s + 1)}
-                  id="btn-skip-step"
-                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                >
+                <button onClick={() => setStep(s => s + 1)} id="btn-skip-step"
+                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
                   {t('Skip for now')}
                 </button>
               </div>
