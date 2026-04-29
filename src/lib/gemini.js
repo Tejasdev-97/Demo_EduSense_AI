@@ -6,9 +6,19 @@
 // ─────────────────────────────────────────────────────
 
 // Model fallback chain — MOST STABLE FIRST
-// NOTE: gemini-2.5-flash is experimental preview with very low free-tier RPM.
-// gemini-2.0-flash is primary; gemini-1.5-flash is the stable fallback.
-const MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+const MODELS = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-pro'
+];
+
+const VISION_MODELS = [
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash'
+];
+
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── In-flight request deduplication cache ──
@@ -33,36 +43,38 @@ export function hasGeminiKey() { return !!getKey(); }
 // ── Exponential backoff sleep ──
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function callGeminiWithBackoff(url, body, maxRetries = 2) {
+async function callGeminiWithBackoff(url, body, maxRetries = 1) {
   let delay = 1000;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (res.ok) return res.json();
+      if (res.ok) return res.json();
 
-    const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `Gemini API error ${res.status}`;
+      const err = await res.json().catch(() => ({}));
+      const msg = err?.error?.message || `Gemini API error ${res.status}`;
 
-    // On 429 (rate limit), wait with exponential backoff before retrying
-    if (res.status === 429 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
-      if (attempt < maxRetries) {
-        console.warn(`Gemini 429 – waiting ${delay}ms before retry ${attempt + 1}/${maxRetries}...`);
-        await sleep(delay);
-        delay *= 2; // exponential backoff: 1s → 2s → 4s
-        continue;
+      // On 429 (rate limit) or 503 (overloaded), wait and retry
+      if (res.status === 429 || res.status === 503 || msg.includes('RESOURCE_EXHAUSTED')) {
+        if (attempt < maxRetries) {
+          await sleep(delay);
+          delay *= 2;
+          continue;
+        }
       }
-      throw new Error(
-        'Gemini API quota exceeded. Your free-tier limit resets at midnight (Pacific Time). ' +
-        'Tip: Get a fresh key from aistudio.google.com → API Keys, then paste it in Settings.'
-      );
+      
+      const error = new Error(msg);
+      error.status = res.status;
+      throw error;
+    } catch (e) {
+      if (attempt >= maxRetries) throw e;
+      await sleep(delay);
+      delay *= 2;
     }
-
-    // Non-retryable errors
-    throw new Error(msg);
   }
 }
 
@@ -96,24 +108,27 @@ async function callGemini(prompt, systemInstruction = '') {
     let lastError;
     for (const model of MODELS) {
       try {
-        const result = await callGeminiModel(model, body);
-        return result;
+        return await callGeminiModel(model, body);
       } catch (err) {
-        const isRetryable =
-          err.message.includes('not found') ||
-          err.message.includes('high demand') ||
+        lastError = err;
+        // If it's a 429 (quota) or 503/500 (server error), try the NEXT model immediately
+        const shouldTryNextModel = 
+          err.status === 429 || 
+          err.status === 503 || 
+          err.status === 500 ||
+          err.message.includes('RESOURCE_EXHAUSTED') ||
           err.message.includes('overloaded') ||
-          err.message.includes('503') ||
-          err.message.includes('UNAVAILABLE');
-        if (isRetryable) {
-          lastError = err;
-          await sleep(1000); // 1s gap between model retries to avoid RPM spike
-          continue;
+          err.message.includes('not found');
+        
+        if (shouldTryNextModel) {
+          console.warn(`Model ${model} failed (${err.message}), trying fallback...`);
+          continue; 
         }
+        // If it's a 400 (Bad Request/Invalid Key), don't bother trying other models
         throw err;
       }
     }
-    throw lastError || new Error('All Gemini models are currently unavailable. Please try again in a moment.');
+    throw lastError || new Error('All Gemini models are currently busy. Please try again in 10 seconds.');
   })();
 
   inFlight.set(dedupKey, promise);
@@ -136,21 +151,27 @@ async function callGeminiVision(prompt, imageBase64) {
   };
 
   let lastError;
-  for (const model of MODELS) {
+  for (const model of VISION_MODELS) {
     try {
       return await callGeminiModel(model, body);
     } catch (err) {
-      const isRetryable =
-        err.message.includes('not found') ||
-        err.message.includes('high demand') ||
+      lastError = err;
+      const shouldTryNextModel = 
+        err.status === 429 || 
+        err.status === 503 || 
+        err.status === 500 ||
         err.message.includes('RESOURCE_EXHAUSTED') ||
         err.message.includes('overloaded') ||
-        err.message.includes('503');
-      if (isRetryable) { lastError = err; await sleep(1000); continue; }
+        err.message.includes('not found');
+      
+      if (shouldTryNextModel) {
+        console.warn(`Vision Model ${model} failed (${err.message}), trying fallback...`);
+        continue; 
+      }
       throw err;
     }
   }
-  throw lastError || new Error('Vision analysis unavailable. Please try again.');
+  throw lastError || new Error('All vision models are currently busy. Please try again.');
 }
 
 // ── Gap Detection ──
@@ -382,7 +403,9 @@ export async function chatWithSahayak({ messages, language, outputFormat = 'plai
   };
 
   const system = `You are SAHAYAK, EduSense AI's friendly learning companion for Indian students.
-Be warm, encouraging, and simple. Use local examples. Grade level: ${userProfile?.grade || 'general'}.
+Be warm, encouraging, and simple. Use local examples. 
+User Role: ${userProfile?.role || 'student'}.
+Grade level: ${userProfile?.grade || 'general'}.
 Language: ${language}. ${formatInstructions[outputFormat] || ''}
 Keep responses concise and engaging. Never be condescending.`;
 
@@ -391,12 +414,7 @@ Keep responses concise and engaging. Never be condescending.`;
   const history = messages.slice(-6).map(m => `${m.role === 'user' ? 'Student' : 'SAHAYAK'}: ${m.content}`).join('\n');
   const prompt = `Conversation so far:\n${history}\n\nStudent's latest message: ${lastMessage}`;
 
-  try {
-    return await callGemini(prompt, system);
-  } catch (err) {
-    console.warn('Offline fallback: chatWithSahayak', err.message);
-    return `⚠️ **Offline Mode Active**\n\nI can't connect to the AI right now. Here's how to fix it:\n\n1. Go to ⚙️ **Settings** in the top navigation\n2. Find the **Gemini API Key** section\n3. Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey)\n4. Paste it and click **Save Key**\n\nMeanwhile, you can still browse your lessons and review your progress!`;
-  }
+  return await callGemini(prompt, system);
 }
 
 // ── Rote Re-check Questions ──

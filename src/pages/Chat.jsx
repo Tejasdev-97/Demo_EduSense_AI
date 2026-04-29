@@ -171,18 +171,18 @@ export default function Chat() {
       try { await saveChatMessage(sessionId.current, assistantMsg); } catch (_) {}
 
     } catch (err) {
-      const isKeyError = !hasGeminiKey() || err.message?.toLowerCase().includes('api key');
-      setKeyAvailable(false);
-
+      const isKeyError = !hasGeminiKey() || err.message?.toLowerCase().includes('api key') || err.message?.includes('403') || err.message?.includes('401');
+      
+      // If we have a key but it's giving an error (quota, etc.), show the real error
       const errorContent = isKeyError
-        ? `🔑 No API key found!\n\nTo use SAHAYAK:\n1. Go to ⚙️ Settings (top nav)\n2. Find "Gemini API Key"\n3. Get a free key at aistudio.google.com\n4. Paste it and click Save Key\n\nI'll be ready as soon as you do! 🚀`
-        : `⚠️ ${err.message || 'Connection error. Please try again.'}`;
+        ? `🔑 **API Key Issue**\n\n${err.message || 'I need a working Gemini API key.'}\n\nTo fix this:\n1. Go to ⚙️ **Settings**\n2. Check your **Gemini API Key**\n3. Get a NEW key at **aistudio.google.com** if needed\n4. Paste and Save Key\n\nI'll be ready as soon as the key is valid! 🚀`
+        : `⚠️ **API Error**\n\n${err.message || 'Connection lost. Please try again.'}\n\n(Tip: If this persists, try a fresh API key in Settings)`;
 
       setMessages(prev => [
         ...prev,
         { id: Date.now().toString(), role: 'assistant', content: errorContent },
       ]);
-      if (!isKeyError) toast.error(err.message || 'SAHAYAK is offline');
+      setKeyAvailable(hasGeminiKey());
     }
 
     setLoading(false);
