@@ -9,14 +9,14 @@ import { LANGUAGES } from '../lib/bhashini';
 import toast from 'react-hot-toast';
 import { useT } from '../hooks/useT';
 
-const GRADES = ['3','4','5','6','7','8','9','10','11','12','UG Year 1','UG Year 2','UG Year 3','PG'];
-const SUBJECTS = ['Mathematics','Science','Social Science','English','Hindi','Physics','Chemistry','Biology','History','Geography','Computer Science','Physical Education'];
+const GRADES = ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'UG Year 1', 'UG Year 2', 'UG Year 3', 'PG'];
+const SUBJECTS = ['Mathematics', 'Science', 'Social Science', 'English', 'Hindi', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Computer Science', 'Physical Education'];
 
 const STATES = [
-  'Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana',
-  'Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur',
-  'Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana',
-  'Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Delhi','Jammu & Kashmir','Ladakh',
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
+  'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana',
+  'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Delhi', 'Jammu & Kashmir', 'Ladakh',
 ];
 
 const BACKGROUNDS = [
@@ -26,8 +26,8 @@ const BACKGROUNDS = [
 ];
 
 const OCCUPATIONS = [
-  'Farming','Daily wage labor','Small business','Government job',
-  'Teaching','Healthcare','Fishing','Handicraft','Dairy farming','Other',
+  'Farming', 'Daily wage labor', 'Small business', 'Government job',
+  'Teaching', 'Healthcare', 'Fishing', 'Handicraft', 'Dairy farming', 'Other',
 ];
 
 const ACCESSIBILITY_NEEDS = [
@@ -39,19 +39,19 @@ const ACCESSIBILITY_NEEDS = [
 
 // Steps for STUDENTS
 const STUDENT_STEPS = [
-  { id: 'grade',         title: 'Your Grade',          subtitle: 'We\'ll adapt content to your level' },
-  { id: 'language',     title: 'Preferred Language',   subtitle: 'EduSense will respond in your language' },
-  { id: 'location',     title: 'Your State',            subtitle: 'Stories will use local cultural context' },
-  { id: 'context',      title: 'Family Background',    subtitle: 'Helps create relatable examples' },
-  { id: 'accessibility',title: 'Accessibility Needs',  subtitle: 'We make learning easier for everyone' },
+  { id: 'grade', title: 'Your Grade', subtitle: 'We\'ll adapt content to your level' },
+  { id: 'language', title: 'Preferred Language', subtitle: 'EduSense will respond in your language' },
+  { id: 'location', title: 'Your State', subtitle: 'Stories will use local cultural context' },
+  { id: 'context', title: 'Family Background', subtitle: 'Helps create relatable examples' },
+  { id: 'accessibility', title: 'Accessibility Needs', subtitle: 'We make learning easier for everyone' },
 ];
 
 // Steps for TEACHERS
 const TEACHER_STEPS = [
-  { id: 'subject',      title: 'Subject You Teach',    subtitle: 'We\'ll tailor insights to your subject' },
-  { id: 'language',     title: 'Preferred Language',   subtitle: 'EduSense will respond in your language' },
-  { id: 'location',     title: 'Your State',            subtitle: 'Local context for your classroom' },
-  { id: 'accessibility',title: 'Accessibility Needs',  subtitle: 'Make your dashboard accessible' },
+  { id: 'subject', title: 'Subject You Teach', subtitle: 'We\'ll tailor insights to your subject' },
+  { id: 'language', title: 'Preferred Language', subtitle: 'EduSense will respond in your language' },
+  { id: 'location', title: 'Your State', subtitle: 'Local context for your classroom' },
+  { id: 'accessibility', title: 'Accessibility Needs', subtitle: 'Make your dashboard accessible' },
 ];
 
 export default function Onboarding() {
@@ -137,11 +137,10 @@ export default function Onboarding() {
               <button
                 key={g} id={`grade-${g}`} type="button"
                 onClick={() => setField('grade', g)}
-                className={`py-3 px-2 rounded-xl text-sm font-semibold transition-all ${
-                  data.grade === g
-                    ? 'bg-primary text-white shadow-glow-orange'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-primary/10'
-                }`}
+                className={`py-3 px-2 rounded-xl text-sm font-semibold transition-all ${data.grade === g
+                  ? 'bg-primary text-white shadow-glow-orange'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-primary/10'
+                  }`}
               >
                 {t(g)}
               </button>
@@ -156,11 +155,10 @@ export default function Onboarding() {
               <button
                 key={s} id={`subj-${s}`} type="button"
                 onClick={() => setField('subject', s)}
-                className={`py-3 px-4 rounded-xl text-sm font-semibold text-left transition-all border-2 ${
-                  data.subject === s
-                    ? 'border-secondary bg-secondary/5 text-secondary'
-                    : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-secondary/40'
-                }`}
+                className={`py-3 px-4 rounded-xl text-sm font-semibold text-left transition-all border-2 ${data.subject === s
+                  ? 'border-secondary bg-secondary/5 text-secondary'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-secondary/40'
+                  }`}
               >
                 {t(s)}
               </button>
@@ -175,11 +173,10 @@ export default function Onboarding() {
               <button
                 key={lang.code} id={`lang-${lang.code}`} type="button"
                 onClick={() => setField('language', lang.code)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
-                  data.language === lang.code
-                    ? 'border-primary bg-primary/5'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-primary/40'
-                }`}
+                className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${data.language === lang.code
+                  ? 'border-primary bg-primary/5'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/40'
+                  }`}
               >
                 <span className="text-2xl">{lang.flag}</span>
                 <div className="text-left">
@@ -205,11 +202,10 @@ export default function Onboarding() {
                 <button
                   key={b.value} id={`bg-${b.value}`} type="button"
                   onClick={() => setField('background', b.value)}
-                  className={`p-4 rounded-xl border-2 text-center transition-all ${
-                    data.background === b.value
-                      ? 'border-primary bg-primary/5'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-primary/40'
-                  }`}
+                  className={`p-4 rounded-xl border-2 text-center transition-all ${data.background === b.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-primary/40'
+                    }`}
                 >
                   <div className="text-2xl mb-1">{b.emoji}</div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{t(b.label)}</p>
@@ -231,11 +227,10 @@ export default function Onboarding() {
                 <button
                   key={occ} id={`occ-${occ}`} type="button"
                   onClick={() => setField('family_occupation', occ)}
-                  className={`py-3 px-4 rounded-xl text-sm font-medium transition-all border-2 ${
-                    data.family_occupation === occ
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-primary/40 text-gray-700 dark:text-gray-300'
-                  }`}
+                  className={`py-3 px-4 rounded-xl text-sm font-medium transition-all border-2 ${data.family_occupation === occ
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-primary/40 text-gray-700 dark:text-gray-300'
+                    }`}
                 >
                   {t(occ)}
                 </button>
@@ -253,17 +248,15 @@ export default function Onboarding() {
                 <button
                   key={a.key} id={`access-${a.key}`} type="button"
                   onClick={() => setField('accessibility', { ...data.accessibility, [a.key]: !data.accessibility[a.key] })}
-                  className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${
-                    data.accessibility[a.key]
-                      ? 'border-secondary bg-secondary/5'
-                      : 'border-gray-200 dark:border-gray-700 hover:border-secondary/40'
-                  }`}
+                  className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${data.accessibility[a.key]
+                    ? 'border-secondary bg-secondary/5'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-secondary/40'
+                    }`}
                 >
                   <span className="text-2xl">{a.emoji}</span>
                   <span className="font-medium text-gray-900 dark:text-white">{t(a.label)}</span>
-                  <div className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    data.accessibility[a.key] ? 'bg-secondary border-secondary' : 'border-gray-300'
-                  }`}>
+                  <div className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${data.accessibility[a.key] ? 'bg-secondary border-secondary' : 'border-gray-300'
+                    }`}>
                     {data.accessibility[a.key] && <Check size={12} className="text-white" />}
                   </div>
                 </button>
@@ -299,9 +292,8 @@ export default function Onboarding() {
           {/* ── Progress Bar ── */}
           <div className="flex items-center gap-1 mb-8">
             {steps.map((_, i) => (
-              <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-                i <= step ? (userRole === 'teacher' ? 'bg-secondary' : 'bg-primary') : 'bg-gray-200 dark:bg-gray-700'
-              }`} />
+              <div key={i} className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${i <= step ? (userRole === 'teacher' ? 'bg-secondary' : 'bg-primary') : 'bg-gray-200 dark:bg-gray-700'
+                }`} />
             ))}
           </div>
 

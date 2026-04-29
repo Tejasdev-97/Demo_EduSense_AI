@@ -1,20 +1,19 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Zap, BookOpen, AlertTriangle, Download, Loader2 } from 'lucide-react';
+import { Zap, Download, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { getTeacherClass, getClassGaps } from '../lib/supabase';
 import { getTeacherDailyAction, teacherLearnConcept } from '../lib/gemini';
-import { GamifiedCard, ThinkingIndicator, PageTransition, GapTypeBadge } from '../components/UI';
+import { GamifiedCard, ThinkingIndicator, PageTransition } from '../components/UI';
 import toast from 'react-hot-toast';
 import { useT } from '../hooks/useT';
 
 const DEMO_HEATMAP = [
-  { subject: 'Math', chapter: 'Fractions', pct: 75, count: 15 },
-  { subject: 'Math', chapter: 'Algebra', pct: 45, count: 9 },
-  { subject: 'Science', chapter: 'Photosynthesis', pct: 85, count: 17 },
-  { subject: 'Science', chapter: 'Evaporation', pct: 60, count: 12 },
-  { subject: 'SSt', chapter: 'Democracy', pct: 30, count: 6 },
-  { subject: 'SSt', chapter: 'Water', pct: 55, count: 11 },
+  { subject: 'Math',    chapter: 'Fractions',      pct: 75, count: 15 },
+  { subject: 'Math',    chapter: 'Algebra',         pct: 45, count: 9  },
+  { subject: 'Science', chapter: 'Photosynthesis',  pct: 85, count: 17 },
+  { subject: 'Science', chapter: 'Evaporation',     pct: 60, count: 12 },
+  { subject: 'SSt',     chapter: 'Democracy',       pct: 30, count: 6  },
+  { subject: 'SSt',     chapter: 'Water',           pct: 55, count: 11 },
 ];
 
 const getHeatColor = (pct) => {
@@ -26,13 +25,13 @@ const getHeatColor = (pct) => {
 export default function Teacher() {
   const { profile, language } = useAppStore();
   const { t } = useT();
-  const [dailyAction, setDailyAction] = useState(null);
+  const [dailyAction, setDailyAction]     = useState(null);
   const [loadingAction, setLoadingAction] = useState(true);
-  const [actionDone, setActionDone] = useState(false);
-  const [guruQuestion, setGuruQuestion] = useState('');
-  const [guruAnswer, setGuruAnswer] = useState('');
-  const [loadingGuru, setLoadingGuru] = useState(false);
-  const [activeTab, setActiveTab] = useState('action');
+  const [actionDone, setActionDone]       = useState(false);
+  const [guruQuestion, setGuruQuestion]   = useState('');
+  const [guruAnswer, setGuruAnswer]       = useState('');
+  const [loadingGuru, setLoadingGuru]     = useState(false);
+  const [activeTab, setActiveTab]         = useState('action');
 
   useEffect(() => {
     if (profile?.role === 'teacher') {
@@ -43,38 +42,46 @@ export default function Teacher() {
   }, [profile]);
 
   const loadDailyAction = async () => {
+    setLoadingAction(true);
+    const demoGaps = [
+      { subject: 'Mathematics', topic: 'Fractions',     gap_type: 'conceptual', student_id: 's1' },
+      { subject: 'Science',     topic: 'Photosynthesis',gap_type: 'rote',       student_id: 's2' },
+      { subject: 'Mathematics', topic: 'Fractions',     gap_type: 'procedural', student_id: 's3' },
+    ];
+    let action;
     try {
-      const demoGaps = [
-        { subject: 'Mathematics', topic: 'Fractions', gap_type: 'conceptual', student_id: 's1' },
-        { subject: 'Science', topic: 'Photosynthesis', gap_type: 'rote', student_id: 's2' },
-        { subject: 'Mathematics', topic: 'Fractions', gap_type: 'procedural', student_id: 's3' },
-      ];
-      const action = await getTeacherDailyAction({ gapEvents: demoGaps, language });
-      setDailyAction(action);
+      action = await getTeacherDailyAction({ gapEvents: demoGaps, language });
     } catch (err) {
-      setDailyAction({
+      console.warn('Gemini daily action fallback:', err.message);
+    }
+    if (!action) {
+      action = {
         action: 'Fraction Confusion Activity',
-        script: 'Start class with: "Draw 3 circles on your notebook. Shade half of each one differently." Then ask: "Are all these halves equal? Why?" Walk around and listen — students who say "No" have a conceptual gap. Pair them with students who said "Yes".',
+        script: 'Start class with: "Draw 3 circles on your notebook. Shade half of each one differently." Then ask: "Are all these halves equal? Why?" Walk around — students who say "No" have a conceptual gap. Pair them with students who said "Yes".',
         duration: 8,
         studentsHelped: 12,
         subject: 'Mathematics',
-      });
+      };
     }
+    setDailyAction(action);
     setLoadingAction(false);
   };
 
   const handleGuruQuestion = async () => {
     if (!guruQuestion.trim()) return;
     setLoadingGuru(true);
+    let answer;
     try {
-      const answer = await teacherLearnConcept({ question: guruQuestion, subject: 'General', language });
-      setGuruAnswer(answer);
-    } catch (err) {
-      toast.error('Could not fetch answer. Check API key in Settings.');
+      answer = await teacherLearnConcept({ question: guruQuestion, subject: 'General', language });
+    } catch (e) {
+      console.warn('Gemini guru fallback:', e.message);
+      answer = '⚠️ Could not generate answer. Please check your API key in Settings and try again.';
     }
+    setGuruAnswer(answer);
     setLoadingGuru(false);
   };
 
+  // ── Access Guard ──
   if (profile?.role !== 'teacher') {
     return (
       <PageTransition>
@@ -101,6 +108,7 @@ export default function Teacher() {
             <p className="text-gray-500">{t('One action a day to transform your classroom')}</p>
           </div>
 
+          {/* ── Tabs ── */}
           <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mb-6 gap-1">
             {['action', 'heatmap', 'gurushakti'].map(tab => (
               <button
@@ -108,7 +116,9 @@ export default function Teacher() {
                 id={`teacher-tab-${tab}`}
                 onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all capitalize ${
-                  activeTab === tab ? 'bg-white dark:bg-gray-900 text-primary shadow-sm' : 'text-gray-500'
+                  activeTab === tab
+                    ? 'bg-white dark:bg-gray-900 text-primary shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 {tab === 'action' ? t('⚡ Ek Kadam') : tab === 'heatmap' ? t('🌡️ Class Health') : t('🧑‍🏫 Gurushakti')}
@@ -116,7 +126,7 @@ export default function Teacher() {
             ))}
           </div>
 
-          {/* Ek Kadam */}
+          {/* ── Ek Kadam ── */}
           {activeTab === 'action' && (
             <div>
               {loadingAction ? (
@@ -141,6 +151,7 @@ export default function Teacher() {
                         <span>👥 {t('Helps')} {dailyAction.studentsHelped} {t('students')}</span>
                         <span>📚 {t(dailyAction.subject)}</span>
                       </div>
+
                       <div className="p-4 bg-primary/5 rounded-2xl mb-6 border-l-4 border-primary">
                         <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">📝 {t('Script to use:')}</p>
                         <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{dailyAction.script}</p>
@@ -150,7 +161,10 @@ export default function Teacher() {
                         <div className="flex gap-3">
                           <button
                             id="btn-action-done"
-                            onClick={() => { setActionDone(true); toast.success('🎉 Wonderful! You helped ' + dailyAction.studentsHelped + ' students today!'); }}
+                            onClick={() => {
+                              setActionDone(true);
+                              toast.success('🎉 Wonderful! You helped ' + dailyAction.studentsHelped + ' students today!');
+                            }}
                             className="btn-primary flex-1"
                           >
                             ✅ {t('I did this! (+50 XP)')}
@@ -188,7 +202,7 @@ export default function Teacher() {
             </div>
           )}
 
-          {/* Heatmap */}
+          {/* ── Class Health Heatmap ── */}
           {activeTab === 'heatmap' && (
             <div>
               <p className="text-sm text-gray-500 mb-4">{t('🔴 High gap (70%+) · 🟡 Medium (40-70%) · 🟢 Low (<40%)')}</p>
@@ -217,7 +231,7 @@ export default function Teacher() {
             </div>
           )}
 
-          {/* Gurushakti */}
+          {/* ── Gurushakti ── */}
           {activeTab === 'gurushakti' && (
             <div>
               <div className="p-4 bg-secondary/5 border border-secondary/20 rounded-2xl mb-6 text-sm text-gray-600 dark:text-gray-400">
@@ -231,7 +245,7 @@ export default function Teacher() {
                   id="input-guru-question"
                   value={guruQuestion}
                   onChange={e => setGuruQuestion(e.target.value)}
-                  placeholder={t('Ask any concept you\'d like to understand better before teaching it... e.g., \'How do I explain photosynthesis using a simple analogy?\'')}
+                  placeholder={t("Ask any concept you'd like to understand better before teaching it... e.g., 'How do I explain photosynthesis using a simple analogy?'")}
                   className="input-base resize-none mb-3"
                   rows={3}
                 />
@@ -241,7 +255,10 @@ export default function Teacher() {
                   disabled={!guruQuestion.trim() || loadingGuru}
                   className="btn-primary disabled:opacity-50"
                 >
-                  {loadingGuru ? <><Loader2 size={16} className="animate-spin" /> {t('Thinking...')}</> : t('🧑‍🏫 Get Teaching Help')}
+                  {loadingGuru
+                    ? <><Loader2 size={16} className="animate-spin" /> {t('Thinking...')}</>
+                    : t('🧑‍🏫 Get Teaching Help')
+                  }
                 </button>
               </GamifiedCard>
 
@@ -255,7 +272,10 @@ export default function Teacher() {
                       <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{guruAnswer}</p>
                     </div>
                     <div className="mt-4 flex gap-3">
-                      <button onClick={() => toast.success('PDF generation requires backend setup')} className="btn-secondary text-sm py-2">
+                      <button
+                        onClick={() => toast.success('PDF generation requires backend setup')}
+                        className="btn-secondary text-sm py-2"
+                      >
                         📄 {t('Download as PDF')}
                       </button>
                     </div>
@@ -264,6 +284,7 @@ export default function Teacher() {
               )}
             </div>
           )}
+
         </div>
       </div>
     </PageTransition>

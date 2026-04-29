@@ -8,7 +8,7 @@
 // Model fallback chain — MOST STABLE FIRST
 // NOTE: gemini-2.5-flash is experimental preview with very low free-tier RPM.
 // gemini-2.0-flash is primary; gemini-1.5-flash is the stable fallback.
-const MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+const MODELS = ['gemini-flash-latest'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── In-flight request deduplication cache ──
@@ -78,6 +78,9 @@ async function callGeminiModel(model, body) {
 }
 
 // Text-only call with automatic model fallback + deduplication
+if (inFlight.size > 3) {
+  throw new Error('Too many requests. Please wait.');
+}
 async function callGemini(prompt, systemInstruction = '') {
   // Deduplication: if same prompt is already in-flight, share the result
   const dedupKey = `${prompt}|${systemInstruction}`;
@@ -87,7 +90,7 @@ async function callGemini(prompt, systemInstruction = '') {
     system_instruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
     contents: [{ parts: [{ text: prompt }] }],
     // Reduced from 2048 to 1024 to cut token usage and stay within free-tier TPM limits
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
   };
 
   const promise = (async () => {
@@ -130,7 +133,7 @@ async function callGeminiVision(prompt, imageBase64) {
         { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
       ],
     }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 512 },
+    generationConfig: { temperature: 0.4, maxOutputTokens: 700 },
   };
 
   let lastError;

@@ -56,18 +56,29 @@ export default function Story() {
         await new Promise(r => setTimeout(r, 600));
       }
 
-      const storyPanels = await generateStory({
-        concept: currentGapEvent?.confusedWith || 'the concept',
-        subject: currentGapEvent?.subject || 'General',
-        gapType: currentGapEvent?.gapType || 'conceptual',
-        visualLiteracyLevel: profile?.visual_literacy_level || 2,
-        language: language || 'hi',
-        culturalProfile: {
-          state: profile?.state,
-          background: profile?.background,
-          occupation: profile?.family_occupation,
-        },
-      });
+      let storyPanels;
+      try {
+        storyPanels = await generateStory({
+          concept: currentGapEvent?.confusedWith || 'the concept',
+          subject: currentGapEvent?.subject || 'General',
+          gapType: currentGapEvent?.gapType || 'conceptual',
+          visualLiteracyLevel: profile?.visual_literacy_level || 2,
+          language: language || 'hi',
+          culturalProfile: {
+            state: profile?.state,
+            background: profile?.background,
+            occupation: profile?.family_occupation,
+          },
+        });
+      } catch (e) {
+        console.error('Gemini error:', e);
+        storyPanels = null;
+      }
+      if (!storyPanels) {
+        setPanels(getDemoStory());
+        setLoading(false);
+        return;
+      }
 
       // Save offline
       await saveStory({

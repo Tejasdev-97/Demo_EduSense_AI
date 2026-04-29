@@ -36,11 +36,10 @@ function ChatBubble({ message, onSpeak }) {
       )}
 
       <div className={`max-w-[80%] ${isUser ? 'order-first' : ''}`}>
-        <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-          isUser
-            ? 'bg-primary text-white rounded-br-md'
-            : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-md shadow-sm border border-gray-200 dark:border-gray-700'
-        }`}>
+        <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${isUser
+          ? 'bg-primary text-white rounded-br-md'
+          : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-md shadow-sm border border-gray-200 dark:border-gray-700'
+          }`}>
           <p className="whitespace-pre-wrap">{message.content}</p>
         </div>
 
@@ -208,9 +207,8 @@ export default function Chat() {
                         key={f.value}
                         id={`fmt-${f.value}`}
                         onClick={() => { setOutputFormat(f.value); setFormatOpen(false); }}
-                        className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                          outputFormat === f.value ? 'text-primary bg-primary/5 font-semibold' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
+                        className={`w-full text-left px-4 py-2 text-sm transition-colors ${outputFormat === f.value ? 'text-primary bg-primary/5 font-semibold' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
                       >
                         {t(f.label)}
                       </button>
@@ -299,9 +297,8 @@ export default function Chat() {
               id="btn-voice-chat"
               whileTap={{ scale: 0.9 }}
               onClick={handleVoiceToggle}
-              className={`p-3 rounded-xl transition-all flex-shrink-0 ${
-                recording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-primary hover:bg-primary/10'
-              }`}
+              className={`p-3 rounded-xl transition-all flex-shrink-0 ${recording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-primary hover:bg-primary/10'
+                }`}
               aria-label="Voice input"
             >
               {recording ? <MicOff size={20} /> : <Mic size={20} />}
