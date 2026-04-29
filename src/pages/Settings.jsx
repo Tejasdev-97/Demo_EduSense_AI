@@ -168,13 +168,11 @@ export default function Settings() {
                       role="switch"
                       aria-checked={notifications[n.id]}
                       onClick={() => toggleNotif(n.id)}
-                      className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
-                        notifications[n.id] ? 'bg-primary' : 'bg-gray-200 dark:bg-gray-700'
-                      }`}
+                      className={`relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${notifications[n.id] ? 'bg-primary' : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
                     >
-                      <span className={`absolute top-0.5 bottom-0.5 aspect-square rounded-full bg-white shadow-sm transition-all duration-200 ${
-                        notifications[n.id] ? 'right-0.5 left-auto' : 'left-0.5 right-auto'
-                      }`} />
+                      <span className={`absolute top-0.5 bottom-0.5 aspect-square rounded-full bg-white shadow-sm transition-all duration-200 ${notifications[n.id] ? 'right-0.5 left-auto' : 'left-0.5 right-auto'
+                        }`} />
                     </button>
                   </div>
                 ))}

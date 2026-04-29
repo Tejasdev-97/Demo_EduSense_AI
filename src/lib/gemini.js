@@ -8,7 +8,7 @@
 // Model fallback chain — MOST STABLE FIRST
 // NOTE: gemini-2.5-flash is experimental preview with very low free-tier RPM.
 // gemini-2.0-flash is primary; gemini-1.5-flash is the stable fallback.
-const MODELS = ['gemini-flash-latest'];
+const MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── In-flight request deduplication cache ──
@@ -26,6 +26,9 @@ function getKey() {
 
   return '';
 }
+
+// Public helper — lets UI components check if a key is available
+export function hasGeminiKey() { return !!getKey(); }
 
 // ── Exponential backoff sleep ──
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -78,11 +81,7 @@ async function callGeminiModel(model, body) {
 }
 
 // Text-only call with automatic model fallback + deduplication
-if (inFlight.size > 3) {
-  throw new Error('Too many requests. Please wait.');
-}
 async function callGemini(prompt, systemInstruction = '') {
-  // Deduplication: if same prompt is already in-flight, share the result
   const dedupKey = `${prompt}|${systemInstruction}`;
   if (inFlight.has(dedupKey)) return inFlight.get(dedupKey);
 
