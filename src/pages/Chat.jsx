@@ -376,7 +376,7 @@ export default function Chat() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={keyAvailable ? t('Ask SAHAYAK anything...') : 'Add your API key in Settings to chat...'}
+                placeholder={keyAvailable ? t('Ask SAHAYAK anything...') : t('Ask anything... (add API key in Settings to enable AI)')}
                 rows={1}
                 className="w-full input-base resize-none max-h-32 overflow-y-auto py-3"
                 style={{ height: 'auto', minHeight: '48px' }}
