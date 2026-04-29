@@ -1,61 +1,123 @@
 // Gemini API integration — all AI calls go through here
+// ─────────────────────────────────────────────────────
+// KEY LOADING ORDER (IMPORTANT):
+//   1. Key manually saved by user via Settings page  → localStorage 'userGeminiKey'
+//   2. Key from .env.local                           → import.meta.env.VITE_GEMINI_KEY
+// ─────────────────────────────────────────────────────
 
-// Model fallback chain: most stable first
-const MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash'];
+// Model fallback chain — MOST STABLE FIRST
+// NOTE: gemini-2.5-flash is experimental preview with very low free-tier RPM.
+// gemini-2.0-flash is primary; gemini-1.5-flash is the stable fallback.
+const MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+// ── In-flight request deduplication cache ──
+// Prevents burning quota when same prompt fires multiple times simultaneously
+const inFlight = new Map();
+
 function getKey() {
-  return localStorage.getItem('userGeminiKey') || import.meta.env.VITE_GEMINI_KEY || '';
+  // PRIORITY 1: User's manually saved key from the Settings page
+  const userKey = localStorage.getItem('userGeminiKey');
+  if (userKey && userKey.trim()) return userKey.trim();
+
+  // PRIORITY 2: Key from .env.local (VITE_GEMINI_KEY)
+  const envKey = import.meta.env.VITE_GEMINI_KEY;
+  if (envKey && envKey.trim()) return envKey.trim();
+
+  return '';
+}
+
+// ── Exponential backoff sleep ──
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function callGeminiWithBackoff(url, body, maxRetries = 2) {
+  let delay = 1000;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) return res.json();
+
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || `Gemini API error ${res.status}`;
+
+    // On 429 (rate limit), wait with exponential backoff before retrying
+    if (res.status === 429 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
+      if (attempt < maxRetries) {
+        console.warn(`Gemini 429 – waiting ${delay}ms before retry ${attempt + 1}/${maxRetries}...`);
+        await sleep(delay);
+        delay *= 2; // exponential backoff: 1s → 2s → 4s
+        continue;
+      }
+      throw new Error(
+        'Gemini API quota exceeded. Your free-tier limit resets at midnight (Pacific Time). ' +
+        'Tip: Get a fresh key from aistudio.google.com → API Keys, then paste it in Settings.'
+      );
+    }
+
+    // Non-retryable errors
+    throw new Error(msg);
+  }
 }
 
 async function callGeminiModel(model, body) {
   const key = getKey();
-  if (!key) throw new Error('No Gemini API key. Please add your key in Settings → API Keys.');
-
-  const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${key}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `Gemini API error ${res.status}`;
-    // Give a friendly message for quota errors
-    if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED') || res.status === 429) {
-      throw new Error('API quota exceeded. Please get a new Gemini API key from aistudio.google.com/app/apikey (free, takes 1 minute) and update it in Settings → API Keys.');
-    }
-    throw new Error(msg);
+  if (!key) {
+    throw new Error(
+      'No Gemini API key found. Please paste your key in Settings → Gemini API Key. ' +
+      'Get a free key at: aistudio.google.com/app/apikey'
+    );
   }
 
-  const json = await res.json();
-  return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${key}`;
+  const data = await callGeminiWithBackoff(url, body);
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-// Text-only call with automatic model fallback
+// Text-only call with automatic model fallback + deduplication
 async function callGemini(prompt, systemInstruction = '') {
+  // Deduplication: if same prompt is already in-flight, share the result
+  const dedupKey = `${prompt}|${systemInstruction}`;
+  if (inFlight.has(dedupKey)) return inFlight.get(dedupKey);
+
   const body = {
     system_instruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+    // Reduced from 2048 to 1024 to cut token usage and stay within free-tier TPM limits
+    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
   };
 
-  let lastError;
-  for (const model of MODELS) {
-    try {
-      return await callGeminiModel(model, body);
-    } catch (err) {
-      const isRetryable =
-        err.message.includes('not found') ||
-        err.message.includes('high demand') ||
-        err.message.includes('RESOURCE_EXHAUSTED') ||
-        err.message.includes('overloaded') ||
-        err.message.includes('503');
-      if (isRetryable) { lastError = err; continue; }
-      throw err;
+  const promise = (async () => {
+    let lastError;
+    for (const model of MODELS) {
+      try {
+        const result = await callGeminiModel(model, body);
+        return result;
+      } catch (err) {
+        const isRetryable =
+          err.message.includes('not found') ||
+          err.message.includes('high demand') ||
+          err.message.includes('overloaded') ||
+          err.message.includes('503') ||
+          err.message.includes('UNAVAILABLE');
+        if (isRetryable) {
+          lastError = err;
+          await sleep(1000); // 1s gap between model retries to avoid RPM spike
+          continue;
+        }
+        throw err;
+      }
     }
-  }
-  throw lastError || new Error('All Gemini models are currently unavailable. Please try again.');
+    throw lastError || new Error('All Gemini models are currently unavailable. Please try again in a moment.');
+  })();
+
+  inFlight.set(dedupKey, promise);
+  promise.finally(() => inFlight.delete(dedupKey));
+
+  return promise;
 }
 
 // Vision (multimodal) call — accepts base64 image
@@ -68,7 +130,7 @@ async function callGeminiVision(prompt, imageBase64) {
         { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
       ],
     }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
+    generationConfig: { temperature: 0.4, maxOutputTokens: 512 },
   };
 
   let lastError;
@@ -82,7 +144,7 @@ async function callGeminiVision(prompt, imageBase64) {
         err.message.includes('RESOURCE_EXHAUSTED') ||
         err.message.includes('overloaded') ||
         err.message.includes('503');
-      if (isRetryable) { lastError = err; continue; }
+      if (isRetryable) { lastError = err; await sleep(1000); continue; }
       throw err;
     }
   }
@@ -106,11 +168,10 @@ Gap types:
 Spectrum score 0-100:
 0=no idea, 25=heard of it, 50=partially gets it, 75=almost there, 100=fully understands
 
-Check for rote learning: exact textbook phrasing without deeper understanding.
 Return ONLY valid JSON with no markdown fences.`;
 
   const cameraContext = workAnalysis
-    ? `\nCamera Work Analysis: ${JSON.stringify(workAnalysis)}\nFacial Expression: ${emotionDetected || 'not available'}\nPrioritize work analysis if confidence is high.`
+    ? `\nCamera Work Analysis: ${JSON.stringify(workAnalysis)}\nFacial Expression: ${emotionDetected || 'not available'}`
     : '';
 
   const prompt = `Subject: ${subject}
@@ -119,8 +180,8 @@ Grade: ${grade}
 Language: ${language}
 Question: ${question}
 Student Answer: ${studentAnswer}
-Past Answers (context): ${JSON.stringify(pastAnswers)}
-Emotion Detected: ${emotionDetected || 'unknown'}${cameraContext}
+Past Answers: ${JSON.stringify(pastAnswers)}
+Emotion: ${emotionDetected || 'unknown'}${cameraContext}
 
 Return JSON:
 {
@@ -138,15 +199,15 @@ Return JSON:
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for detectGap:', err);
+    console.warn('Offline fallback: detectGap', err.message);
     return {
       gapType: 'conceptual',
       spectrumScore: 40,
       isRote: false,
-      confusedWith: 'Offline Fallback Model',
-      explanation: 'You seem to have a conceptual gap. (Offline Fallback)',
+      confusedWith: null,
+      explanation: 'You seem to have a conceptual gap. (Offline — check your API key in Settings)',
       suggestedBridgeType: 'visual_story',
-      socraticQuestions: ['What do you think is the main idea?', 'Can you give a real-life example?']
+      socraticQuestions: ['What do you think is the main idea?', 'Can you give a real-life example?', 'How would you explain this to a friend?']
     };
   }
 }
@@ -175,36 +236,26 @@ export async function generateStory({ concept, subject, gapType, visualLiteracyL
   const system = `You are a creative educational storyteller for Indian students. Create culturally resonant, simple stories that teach through local context.`;
 
   const prompt = `Create a 4-panel visual comic story to teach "${concept}" (${subject}) to a student.
-
 Gap type: ${gapType}
 Visual literacy level: ${visualLiteracyLevel} — ${visual[visualLiteracyLevel] || visual[2]}
 Language: ${language}
-Student's state: ${state || 'India'}
-Background: ${background || 'rural'}
-Family occupation: ${occupation || 'farming'}
-Cultural context cues: ${culturalRules[state] || culturalRules['default']}
+State: ${state || 'India'}, Background: ${background || 'rural'}, Occupation: ${occupation || 'farming'}
+Cultural context: ${culturalRules[state] || culturalRules['default']}
 
 Return ONLY a valid JSON array of 4 panels (no markdown):
-[
-  {
-    "panelNumber": 1,
-    "sceneDescription": "detailed 50-word image generation prompt showing the concept visually",
-    "dialogue": "what character says in ${language} (max 20 words, simple vocabulary)",
-    "conceptConnection": "how this panel teaches the concept"
-  }
-]`;
+[{"panelNumber":1,"sceneDescription":"...","dialogue":"...","conceptConnection":"..."}]`;
 
   try {
     const raw = await callGemini(prompt, system);
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for generateStory:', err);
+    console.warn('Offline fallback: generateStory', err.message);
     return [
-      { panelNumber: 1, sceneDescription: "A teacher pointing at a blackboard in a village school", dialogue: "Let's learn this concept (Offline Mode)", conceptConnection: "Introduction to the topic" },
-      { panelNumber: 2, sceneDescription: "Two students discussing under a tree", dialogue: "I think it means we share equally.", conceptConnection: "Peer discussion" },
+      { panelNumber: 1, sceneDescription: "A teacher pointing at a blackboard in a village school", dialogue: "Let's learn this concept together!", conceptConnection: "Introduction to the topic" },
+      { panelNumber: 2, sceneDescription: "Two students discussing under a mango tree", dialogue: "I think it means we share equally.", conceptConnection: "Peer discussion" },
       { panelNumber: 3, sceneDescription: "Teacher showing a practical example with fruits", dialogue: "See how dividing this apple works?", conceptConnection: "Practical application" },
-      { panelNumber: 4, sceneDescription: "Students smiling and nodding", dialogue: "I understand now!", conceptConnection: "Resolution" }
+      { panelNumber: 4, sceneDescription: "Students smiling with thumbs up", dialogue: "Now I understand! Thank you.", conceptConnection: "Concept mastered" }
     ];
   }
 }
@@ -212,7 +263,7 @@ Return ONLY a valid JSON array of 4 panels (no markdown):
 // ── Socratic Questions ──
 export async function getSocraticQuestions({ concept, subject, language }) {
   const prompt = `Generate 3 Socratic follow-up questions that progressively probe deeper understanding of "${concept}" in ${subject}.
-Questions should feel like a friendly conversation, not a test. Language: ${language}.
+Questions should feel like a friendly conversation. Language: ${language}.
 Return ONLY JSON: {"questions":["q1","q2","q3"]}`;
 
   try {
@@ -220,7 +271,7 @@ Return ONLY JSON: {"questions":["q1","q2","q3"]}`;
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned).questions;
   } catch (err) {
-    console.warn('Using offline fallback for getSocraticQuestions:', err);
+    console.warn('Offline fallback: getSocraticQuestions');
     return ["What do you mean by that?", "Can you explain how you arrived at that answer?", "What would happen if we changed one of the variables?"];
   }
 }
@@ -236,11 +287,11 @@ Return ONLY JSON array: [{"chapter":"name","type":"normal|micro|bridge","prerequ
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for generateLearningPath:', err);
+    console.warn('Offline fallback: generateLearningPath');
     return [
-      { chapter: "Fundamentals (Offline)", type: "micro", prerequisiteFor: "Main Concept", estimatedMinutes: 10, description: "A quick review of the basics." },
-      { chapter: "Main Concept", type: "normal", prerequisiteFor: null, estimatedMinutes: 20, description: "The core topic you are trying to learn." },
-      { chapter: "Advanced Application", type: "bridge", prerequisiteFor: null, estimatedMinutes: 15, description: "Applying what you learned." }
+      { chapter: "Fundamentals Review", type: "micro", prerequisiteFor: "Main Concept", estimatedMinutes: 10, description: "Quick review of the basics." },
+      { chapter: "Main Concept", type: "normal", prerequisiteFor: null, estimatedMinutes: 20, description: "The core topic you are learning." },
+      { chapter: "Real-World Application", type: "bridge", prerequisiteFor: null, estimatedMinutes: 15, description: "Applying what you learned." }
     ];
   }
 }
@@ -249,8 +300,7 @@ Return ONLY JSON array: [{"chapter":"name","type":"normal|micro|bridge","prerequ
 export async function getTeacherDailyAction({ gapEvents, language = 'hi' }) {
   const prompt = `Given these student gap events from the last 48 hours: ${JSON.stringify(gapEvents.slice(0, 20))}
 Generate ONE single teacher action for today that helps the most students.
-Be specific: exact words to say, exact activity, estimated time.
-Language: ${language}.
+Be specific: exact words to say, exact activity, estimated time. Language: ${language}.
 Return ONLY JSON: {"action":"title","script":"exact words/steps","duration":15,"studentsHelped":5,"subject":""}`;
 
   try {
@@ -258,10 +308,10 @@ Return ONLY JSON: {"action":"title","script":"exact words/steps","duration":15,"
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for getTeacherDailyAction:', err);
+    console.warn('Offline fallback: getTeacherDailyAction');
     return {
-      action: "Offline Group Activity",
-      script: "Ask students to form groups of 3 and discuss the hardest question from yesterday's homework. Walk around and listen to their reasoning.",
+      action: "Group Discussion Activity",
+      script: "Ask students to form groups of 3 and discuss the hardest question from yesterday's homework. Walk around and listen. Prompt stuck groups with: 'What do you already know about this?'",
       duration: 15,
       studentsHelped: 10,
       subject: "General"
@@ -280,13 +330,13 @@ Return ONLY JSON: {"openingQuestion":"","expectedAnswer":"","ifWrong":"","relate
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for generatePeerCard:', err);
+    console.warn('Offline fallback: generatePeerCard');
     return {
       openingQuestion: "How would you explain this in your own words?",
       expectedAnswer: "A simple explanation showing they grasp the core idea.",
-      ifWrong: "If they struggle, ask them to think about a similar example.",
-      relatedExample: "Think about sharing a pizza.",
-      encouragement: "Great job! You're getting the hang of it."
+      ifWrong: "If they struggle, ask them to think of a similar real-life example.",
+      relatedExample: "Think about sharing a pizza equally among friends.",
+      encouragement: "Great job! You're getting the hang of it. Keep going!"
     };
   }
 }
@@ -306,7 +356,7 @@ Return ONLY JSON: {"comprehensionLevel":"low|medium|high","roteDetected":false,"
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for analyzeBaatCheet:', err);
+    console.warn('Offline fallback: analyzeBaatCheet');
     return {
       comprehensionLevel: "medium",
       roteDetected: false,
@@ -318,7 +368,7 @@ Return ONLY JSON: {"comprehensionLevel":"low|medium|high","roteDetected":false,"
   }
 }
 
-// ── Generic Chat ──
+// ── Generic Chat (SAHAYAK) ──
 export async function chatWithSahayak({ messages, language, outputFormat = 'plain', userProfile }) {
   const formatInstructions = {
     plain: '',
@@ -335,22 +385,23 @@ Language: ${language}. ${formatInstructions[outputFormat] || ''}
 Keep responses concise and engaging. Never be condescending.`;
 
   const lastMessage = messages[messages.length - 1]?.content || '';
-  const history = messages.slice(-10).map(m => `${m.role === 'user' ? 'Student' : 'SAHAYAK'}: ${m.content}`).join('\n');
+  // Only keep last 6 messages to reduce token usage
+  const history = messages.slice(-6).map(m => `${m.role === 'user' ? 'Student' : 'SAHAYAK'}: ${m.content}`).join('\n');
   const prompt = `Conversation so far:\n${history}\n\nStudent's latest message: ${lastMessage}`;
 
   try {
     return await callGemini(prompt, system);
   } catch (err) {
-    console.warn('Using offline fallback for chatWithSahayak:', err);
-    return "I am operating in Offline Mode (or your API key is invalid/missing). I cannot process complex queries right now, but you can continue learning with offline resources!";
+    console.warn('Offline fallback: chatWithSahayak', err.message);
+    return `⚠️ **Offline Mode Active**\n\nI can't connect to the AI right now. Here's how to fix it:\n\n1. Go to ⚙️ **Settings** in the top navigation\n2. Find the **Gemini API Key** section\n3. Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey)\n4. Paste it and click **Save Key**\n\nMeanwhile, you can still browse your lessons and review your progress!`;
   }
 }
 
 // ── Rote Re-check Questions ──
 export async function getRoteReformulations({ concept, originalQuestion, language }) {
-  const prompt = `The student answered this question: "${originalQuestion}" about "${concept}" correctly but may be rote memorizing.
-Generate 3 reformulation questions that test the same concept differently.
-Language: ${language}. Make questions feel fresh and applied, not repeated.
+  const prompt = `The student answered: "${originalQuestion}" about "${concept}" correctly but may be rote memorizing.
+Generate 3 reformulation questions testing the same concept differently.
+Language: ${language}. Make questions feel fresh and applied.
 Return ONLY JSON: {"questions":["q1","q2","q3"]}`;
 
   try {
@@ -358,8 +409,8 @@ Return ONLY JSON: {"questions":["q1","q2","q3"]}`;
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned).questions;
   } catch (err) {
-    console.warn('Using offline fallback for getRoteReformulations:', err);
-    return ["Can you explain this without using the textbook definition?", "How would you teach this to a 5-year-old?", "Give an example of this from real life."];
+    console.warn('Offline fallback: getRoteReformulations');
+    return ["Can you explain this without the textbook definition?", "How would you teach this to a 5-year-old?", "Give a real-life example of this concept."];
   }
 }
 
@@ -367,12 +418,13 @@ Return ONLY JSON: {"questions":["q1","q2","q3"]}`;
 export async function generateBadgeNarration({ badgeName, studentName, achievement }) {
   const prompt = `Generate an inspiring 2-3 sentence story narration for a student badge.
 Badge: "${badgeName}" | Student: "${studentName}" | Achievement: "${achievement}"
-Make it feel like an epic adventure milestone. Reference Indian knowledge traditions (IKS). Keep it joyful and motivating.`;
+Make it feel like an epic adventure milestone. Reference Indian knowledge traditions. Keep it joyful.`;
+
   try {
     return await callGemini(prompt);
   } catch (err) {
-    console.warn('Using offline fallback for generateBadgeNarration:', err);
-    return "You have achieved a great milestone! Keep up the excellent work and continue your learning journey.";
+    console.warn('Offline fallback: generateBadgeNarration');
+    return `Like the great scholars of Nalanda and Takshashila, ${studentName || 'you'} have proven true dedication! This ${badgeName} badge marks a real milestone on your Gyaan Yatra. Keep going — the path of knowledge is infinite!`;
   }
 }
 
@@ -383,48 +435,31 @@ export async function teacherLearnConcept({ question, subject, language = 'hi' }
 Provide:
 1. Simple explanation (language: ${language})
 2. A classroom-friendly example
-3. A 5-minute activity script they can use with students
+3. A 5-minute activity script
 
 Format clearly with section headers.`;
+
   try {
     return await callGemini(prompt, system);
   } catch (err) {
-    console.warn('Using offline fallback for teacherLearnConcept:', err);
-    return "# Offline Teaching Guide\n**Simple Explanation**: This is a core concept that requires practical examples to understand.\n**Classroom Example**: Use everyday objects like fruits or coins to demonstrate.\n**Activity**: Have students pair up and explain it to each other for 5 minutes.";
+    console.warn('Offline fallback: teacherLearnConcept');
+    return `## Offline Teaching Guide\n\n**Simple Explanation**: This is a core concept that requires practical examples to understand.\n\n**Classroom Example**: Use everyday objects like fruits or coins to demonstrate the concept.\n\n**5-Minute Activity**: Have students pair up and explain the concept to each other in 3 sentences. Walk around and listen — this reveals gaps instantly.`;
   }
 }
 
 // ── DRISHTI CAM: Analyse Student Written Work ──
 export async function analyseStudentWork({ imageBase64, subject, topic, question, grade, language }) {
-  const prompt = `You are EduSense AI analyzing a photo of student's handwritten/drawn work.
-
-Subject: ${subject}
-Topic: ${topic}
-Question asked: ${question}
-Student grade: ${grade}
-Language: ${language}
-
-Analyze this image of the student's written work. Identify:
-1. What has the student written or drawn?
-2. Which gap type does it show?
-   - conceptual: wrong mental model in diagram or explanation
-   - linguistic: right concept, wrong words or terminology
-   - procedural: correct formula but wrong steps or sequence
-   - prior_knowledge: blank or sparse, cannot start
-   - attention: mostly correct with one careless slip
-   - rote: memorized phrases without application
-   - none: correct and shows understanding
-3. Exact location of the gap in their work
-4. Spectrum score 0-100
+  const prompt = `Analyze this photo of student's handwritten work.
+Subject: ${subject}, Topic: ${topic}, Question: ${question}, Grade: ${grade}, Language: ${language}
 
 Return ONLY valid JSON (no markdown):
 {
-  "whatStudentWrote": "description of work",
+  "whatStudentWrote": "description",
   "gapType": "conceptual|linguistic|procedural|prior_knowledge|attention|rote|none",
-  "gapLocation": "exactly where in their work",
+  "gapLocation": "where in their work",
   "spectrumScore": 0,
-  "keyObservation": "most important thing noticed",
-  "suggestedApproach": "how to bridge this gap",
+  "keyObservation": "most important observation",
+  "suggestedApproach": "how to bridge the gap",
   "confidence": "high|medium|low"
 }`;
 
@@ -433,14 +468,14 @@ Return ONLY valid JSON (no markdown):
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for analyseStudentWork:', err);
+    console.warn('Offline fallback: analyseStudentWork');
     return {
       whatStudentWrote: "Offline mode: Unable to analyze image.",
       gapType: "none",
       gapLocation: "N/A",
       spectrumScore: 50,
-      keyObservation: "Image analysis requires an active internet connection and valid Gemini API key.",
-      suggestedApproach: "Please review the student's work manually.",
+      keyObservation: "Image analysis requires a valid Gemini API key. Please check Settings.",
+      suggestedApproach: "Review the student's work manually until API is connected.",
       confidence: "low"
     };
   }
@@ -448,27 +483,17 @@ Return ONLY valid JSON (no markdown):
 
 // ── DRISHTI CAM: Read Question from Image ──
 export async function readQuestionImage({ imageBase64, subject, grade, language }) {
-  const prompt = `Read the question or problem visible in this image.
-
-Subject: ${subject}
-Grade: ${grade}
-Language: ${language}
-
-Extract:
-1. The exact question being asked
-2. Key terms and concepts involved
-3. What prior knowledge is needed
-4. Difficulty level (easy/medium/hard)
-5. Subject area and specific topic
+  const prompt = `Read the question visible in this image.
+Subject: ${subject}, Grade: ${grade}, Language: ${language}
 
 Return ONLY valid JSON (no markdown):
 {
   "questionText": "the question",
-  "keyTerms": ["term1", "term2"],
+  "keyTerms": ["term1"],
   "prerequisiteKnowledge": ["prereq1"],
   "difficulty": "easy|medium|hard",
-  "topic": "specific topic",
-  "subject": "subject area"
+  "topic": "topic",
+  "subject": "subject"
 }`;
 
   try {
@@ -476,11 +501,11 @@ Return ONLY valid JSON (no markdown):
     const cleaned = raw.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('Using offline fallback for readQuestionImage:', err);
+    console.warn('Offline fallback: readQuestionImage');
     return {
-      questionText: "Offline Mode: Cannot read image text.",
-      keyTerms: ["offline", "fallback"],
-      prerequisiteKnowledge: ["internet connection"],
+      questionText: "Offline Mode: Cannot read image. Please check your API key in Settings.",
+      keyTerms: ["api key required"],
+      prerequisiteKnowledge: ["valid Gemini API key"],
       difficulty: "medium",
       topic: "Unknown",
       subject: "Unknown"
