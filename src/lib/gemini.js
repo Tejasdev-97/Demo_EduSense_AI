@@ -9,10 +9,7 @@
 const MODELS = [
   'gemini-1.5-flash',
   'gemini-1.5-flash-latest',
-  'gemini-1.5-pro',
-  'gemini-1.5-pro-latest',
-  'gemini-pro',
-  'gemini-1.0-pro'
+  'gemini-1.5-pro'
 ];
 
 const VISION_MODELS = [
@@ -21,20 +18,20 @@ const VISION_MODELS = [
   'gemini-1.5-pro'
 ];
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1/models';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── Test Connection ──
 export async function testGeminiKey() {
   const key = getKey();
   if (!key) throw new Error('No key to test');
-  
+
   // Try to list models to verify the key works
   const url = `https://generativelanguage.googleapis.com/v1/models?key=${key}`;
   const res = await fetch(url);
   const data = await res.json();
-  
+
   if (!res.ok) throw new Error(data?.error?.message || 'Invalid API Key');
-  
+
   const available = data.models?.map(m => m.name.split('/').pop()) || [];
   return {
     success: true,
@@ -88,7 +85,7 @@ async function callGeminiWithBackoff(url, body, maxRetries = 1) {
           continue;
         }
       }
-      
+
       const error = new Error(msg);
       error.status = res.status;
       throw error;
@@ -121,7 +118,7 @@ async function callGemini(prompt, systemInstruction = '') {
 
   // For maximum compatibility across v1 and v1beta, we combine system instruction 
   // into the main prompt if it exists. This avoids "Unknown name 'system_instruction'" errors.
-  const fullPrompt = systemInstruction 
+  const fullPrompt = systemInstruction
     ? `INSTRUCTIONS:\n${systemInstruction}\n\nUSER PROMPT:\n${prompt}`
     : prompt;
 
@@ -137,7 +134,6 @@ async function callGemini(prompt, systemInstruction = '') {
         return await callGeminiModel(model, body);
       } catch (err) {
         lastError = err;
-        // If it's a 429 (quota) or 503/500 (server error), try the NEXT model immediately
         const shouldTryNextModel = 
           err.status === 429 || 
           err.status === 503 || 
@@ -150,7 +146,6 @@ async function callGemini(prompt, systemInstruction = '') {
           console.warn(`Model ${model} failed (${err.message}), trying fallback...`);
           continue; 
         }
-        // If it's a 400 (Bad Request/Invalid Key), don't bother trying other models
         throw err;
       }
     }
@@ -165,12 +160,16 @@ async function callGemini(prompt, systemInstruction = '') {
 
 // Vision (multimodal) call — accepts base64 image
 async function callGeminiVision(prompt, imageBase64) {
+  // Extract actual mime type (e.g., image/png, image/jpeg) from the data URL
+  const mimeTypeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
+  const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
   const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+  
   const body = {
     contents: [{
       parts: [
         { text: prompt },
-        { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
+        { inline_data: { mime_type: mimeType, data: base64Data } },
       ],
     }],
     generationConfig: { temperature: 0.4, maxOutputTokens: 700 },
@@ -182,17 +181,17 @@ async function callGeminiVision(prompt, imageBase64) {
       return await callGeminiModel(model, body);
     } catch (err) {
       lastError = err;
-      const shouldTryNextModel = 
-        err.status === 429 || 
-        err.status === 503 || 
+      const shouldTryNextModel =
+        err.status === 429 ||
+        err.status === 503 ||
         err.status === 500 ||
         err.message.includes('RESOURCE_EXHAUSTED') ||
         err.message.includes('overloaded') ||
         err.message.includes('not found');
-      
+
       if (shouldTryNextModel) {
         console.warn(`Vision Model ${model} failed (${err.message}), trying fallback...`);
-        continue; 
+        continue;
       }
       throw err;
     }
