@@ -17,7 +17,7 @@ const VISION_MODELS = [
   'gemini-1.5-pro'
 ];
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1/models';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── In-flight request deduplication cache ──
 // Prevents burning quota when same prompt fires multiple times simultaneously
@@ -95,10 +95,14 @@ async function callGemini(prompt, systemInstruction = '') {
   const dedupKey = `${prompt}|${systemInstruction}`;
   if (inFlight.has(dedupKey)) return inFlight.get(dedupKey);
 
+  // For maximum compatibility across v1 and v1beta, we combine system instruction 
+  // into the main prompt if it exists. This avoids "Unknown name 'system_instruction'" errors.
+  const fullPrompt = systemInstruction 
+    ? `INSTRUCTIONS:\n${systemInstruction}\n\nUSER PROMPT:\n${prompt}`
+    : prompt;
+
   const body = {
-    system_instruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
-    contents: [{ parts: [{ text: prompt }] }],
-    // Reduced from 2048 to 1024 to cut token usage and stay within free-tier TPM limits
+    contents: [{ parts: [{ text: fullPrompt }] }],
     generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
   };
 
